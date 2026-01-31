@@ -15,6 +15,3 @@ venv/
 # Jupyter Notebook
 .ipynb_checkpoints
 *-checkpoint.ipynb
-
-# Data
-data/chroma_db/
