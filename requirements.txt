@@ -22,3 +22,4 @@ ragas
 rapidfuzz
 pyngrok
 pysqlite3-binary
+lark
