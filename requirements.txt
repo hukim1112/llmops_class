@@ -25,3 +25,4 @@ pysqlite3-binary
 lark
 datasets
 matplotlib
+pandas
