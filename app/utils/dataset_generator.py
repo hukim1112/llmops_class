@@ -7,6 +7,7 @@ import json
 import pandas as pd
 from typing import List, Dict, Optional
 from pathlib import Path
+from langchain_google_genai import ChatGoogleGenerativeAI
 
 # Dependency Check
 try:
@@ -54,8 +55,8 @@ def generate_golden_dataset(
         return []
 
     generated_examples = []
-    # 강력한 성능을 위해 gpt-4o 사용
-    llm = ChatOpenAI(model="gpt-4o", temperature=0.7)
+ 
+    llm = ChatOpenAI(model="gpt-5-mini", temperature=0.7)
 
     # num_samples를 채울 때까지 반복 (한 번에 3개씩(Simple, Reasoning, Visual) 생성되므로 Loop 횟수 조정)
     # 넉넉하게 Loop를 돌고 나중에 자릅니다.

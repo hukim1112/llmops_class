@@ -58,7 +58,7 @@ with st.sidebar:
     # Agent Selector
     agent_name = st.radio(
         "Select Agent",
-        ["basic", "rag-basic", "rag-self-query", "multimodal"],
+        ["basic", "basic-rag", "self-query-rag", "multimodal-rag"],
         index=0
     )
     

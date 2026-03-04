@@ -61,7 +61,7 @@ if __name__ == "__main__":
     
     print("="*50)
     print("🤖 Agent Client Console")
-    print("Available Agents: basic, rag-basic, rag-self-query, multimodal")
+    print("Available Agents: basic, basic-rag, self-query-rag, multimodal-rag")
     print("Commands:")
     print("  /switch {agent_name} : Switch agent")
     print("  quit / exit          : Exit console")

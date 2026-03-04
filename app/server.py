@@ -139,13 +139,13 @@ app = FastAPI(
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "agents": ["basic", "rag-basic", "rag-self-query", "multimodal"]}
+    return {"status": "ok", "agents": ["basic", "basic-rag", "self-query-rag", "multimodal-rag"]}
 
 # --- Register Routers ---
 app.include_router(create_agent_router(basic_agent, "/basic", ["Basic Chat"]))
-app.include_router(create_agent_router(rag_basic_agent, "/rag-basic", ["RAG Basic"]))
-app.include_router(create_agent_router(rag_self_query_agent, "/rag-self-query", ["Step 2: Self-Query"]))
-app.include_router(create_agent_router(rag_multimodal_agent, "/multimodal", ["Step 3: Multimodal"]))
+app.include_router(create_agent_router(rag_basic_agent, "/basic-rag", ["RAG Basic"]))
+app.include_router(create_agent_router(rag_self_query_agent, "/self-query-rag", ["Self-Query"]))
+app.include_router(create_agent_router(rag_multimodal_agent, "/multimodal-rag", ["Multimodal-RAG"]))
 
 
 if __name__ == "__main__":

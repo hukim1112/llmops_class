@@ -5,7 +5,7 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
 # RAGAS Imports
 from ragas import evaluate as ragas_evaluate
-from ragas.metrics import Faithfulness, AnswerRelevancy, ContextPrecision, ContextRecall
+from ragas.metrics import Faithfulness, AnswerRelevancy, ContextPrecision, ContextRecall, AnswerCorrectness
 
 # JSON Parsing Helper (RAGAS 안정성 확보용)
 class JSONCleanLLM(ChatOpenAI):
@@ -104,15 +104,25 @@ async def run_ragas_evaluation(
     ragas_dataset = Dataset.from_dict(data_dict)
     
     # 4. 평가 모델 설정
-    judge_llm = JSONCleanLLM(model="gpt-4o", temperature=0)
-    creative_llm = JSONCleanLLM(model="gpt-4o", temperature=0.7)
-    embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
+    from ragas.llms import LangchainLLMWrapper
+    from ragas.embeddings import LangchainEmbeddingsWrapper
+
+    # 랭체인 모델 생성
+    judge_llm_raw = JSONCleanLLM(model="gpt-4o", temperature=0)
+    creative_llm_raw = JSONCleanLLM(model="gpt-4o", temperature=0.7)
+    embeddings_raw = OpenAIEmbeddings(model="text-embedding-3-large")
+
+    # RAGAS 최신 버전 규격에 맞게 Wrapper로 감싸기
+    judge_llm = LangchainLLMWrapper(judge_llm_raw)
+    creative_llm = LangchainLLMWrapper(creative_llm_raw)
+    embeddings = LangchainEmbeddingsWrapper(embeddings_raw)
     
     metrics = [
         Faithfulness(llm=judge_llm),
         ContextPrecision(llm=judge_llm),
         ContextRecall(llm=judge_llm),
-        AnswerRelevancy(llm=creative_llm, embeddings=embeddings)
+        AnswerRelevancy(llm=creative_llm, embeddings=embeddings),
+        AnswerCorrectness(llm=judge_llm, embeddings=embeddings)
     ]
     
     # 5. RAGAS 실행

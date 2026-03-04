@@ -18,13 +18,14 @@ system_prompt = f"""
 2. 검색된 문서(Metadata 포함)를 바탕으로 정확하고 간결하게 답변하세요.
 3. 문서의 내용을 인용할 때는 출처(문서 번호, 연도, 분기 등)를 명시하면 좋습니다.
 4. 만약 검색 결과에 답이 없다면, 솔직하게 모르겠다고 답하거나 범위를 넓혀 다시 검색하라고 제안하세요.
+5. 답변을 위한 검색 도구 사용을 3회차까지 수행했음에도 원하는 결과가 나오지 않는다면, 추가 검색을 중단하고 주어진 정보를 토대로 질문에 답변하세요.
 
 오늘의 날짜 : {today_date}
 """
 
 def get_agent_executor():
     # LLM & Memory
-    llm = init_chat_model(model="gpt-4o", model_provider="openai")
+    llm = init_chat_model(model="gpt-5-mini", model_provider="openai")
     memory = MemorySaver()
     
     # Create Agent (LangGraph 기반 Standard Agent)
