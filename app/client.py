@@ -1,6 +1,11 @@
+import sys
+import os
+
+# Add project root to sys.path (직접 실행 시 app 모듈 import를 위함)
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import requests
 import json
-import sys
 
 class AgentClient:
     def __init__(self, base_url: str = "http://localhost:8000"):
@@ -57,11 +62,15 @@ class AgentClient:
 
 # --- Interactive Test Loop ---
 if __name__ == "__main__":
+    from app.agents import AGENT_REGISTRY
+    
     client = AgentClient()
+    
+    available_agents = [a["name"] for a in AGENT_REGISTRY]
     
     print("="*50)
     print("🤖 Agent Client Console")
-    print("Available Agents: basic, basic-rag, self-query-rag, multimodal-rag")
+    print(f"Available Agents: {', '.join(available_agents)}")
     print("Commands:")
     print("  /switch {agent_name} : Switch agent")
     print("  quit / exit          : Exit console")
@@ -106,6 +115,8 @@ if __name__ == "__main__":
                         if 'input' in chunk:
                              print(f" Input: {chunk['input']}", end="")
                         print("\n", end="")
+                    elif chunk["type"] == "tool_end":
+                        print(f"  ✅ [Tool: {chunk['name']}] Done.")
                     elif chunk["type"] == "error":
                         print(f"\n❌ Error: {chunk.get('content') or chunk.get('error')}")
                 elif "error" in chunk:

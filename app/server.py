@@ -31,18 +31,18 @@ else:
 import logging
 import json
 import traceback
-from typing import AsyncGenerator, Optional, Dict, Any
+from typing import AsyncGenerator, Optional
 
 from fastapi import FastAPI, APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-# --- Agent Executors Import ---
+# --- Agent Registry Import ---
 # 주의: 환경 변수(API Key)가 로드된 후에 에이전트 모듈을 임포트해야 합니다.
-from app.agents.basic import agent_executor as basic_agent
-from app.agents.rag_basic import agent_executor as rag_basic_agent
-from app.agents.rag_self_query import agent_executor as rag_self_query_agent
-from app.agents.rag_multimodal import agent_executor as rag_multimodal_agent
+# 에이전트는 AGENT_REGISTRY를 통해 동적으로 로딩됩니다.
+import importlib
+from app.agents import AGENT_REGISTRY
+from app.utils.message_utils import normalize_content, sanitize_text
 
 # Logging Setup
 logging.basicConfig(level=logging.INFO)
@@ -83,7 +83,15 @@ def create_agent_router(agent_executor, prefix: str, tags: list = None) -> APIRo
                 
                 # Tool Start
                 if kind == "on_tool_start":
-                    yield f"data: {json.dumps({'type': 'tool_start', 'name': event['name'], 'input': event['data'].get('input')})}\n\n"
+                    tool_input = sanitize_text(str(event['data'].get('input', '')))
+                    yield f"data: {json.dumps({'type': 'tool_start', 'name': event['name'], 'input': tool_input})}\n\n"
+                
+                # Tool End (결과도 함께 전송)
+                elif kind == "on_tool_end":
+                    tool_output = str(event["data"].get("output", ""))
+                    # 긴 출력은 앞부분만 전송 (UI 과부하 방지)
+                    truncated = tool_output[:500] + "..." if len(tool_output) > 500 else tool_output
+                    yield f"data: {json.dumps({'type': 'tool_end', 'name': event['name'], 'output': sanitize_text(truncated)})}\n\n"
                 
                 # Token Streaming (Chat Model)
                 elif kind == "on_chat_model_stream":
@@ -94,7 +102,9 @@ def create_agent_router(agent_executor, prefix: str, tags: list = None) -> APIRo
 
                     chunk = event["data"]["chunk"]
                     if chunk and chunk.content:
-                        yield f"data: {json.dumps({'type': 'token', 'content': chunk.content})}\n\n"
+                        # Gemini 리스트 → 문자열 정규화 + 서로게이트 문자 제거
+                        normalized = sanitize_text(normalize_content(chunk.content))
+                        yield f"data: {json.dumps({'type': 'token', 'content': normalized})}\n\n"
 
         except Exception as e:
             logger.error(f"Stream error in {prefix}: {e}")
@@ -114,7 +124,8 @@ def create_agent_router(agent_executor, prefix: str, tags: list = None) -> APIRo
             )
             # LangGraph: State['messages'][-1] is the AI response
             last_message = result["messages"][-1]
-            return ChatMessage(type="ai", content=last_message.content)
+            # Gemini 리스트 → 문자열 정규화 + 서로게이트 문자 제거
+            return ChatMessage(type="ai", content=sanitize_text(normalize_content(last_message.content)))
         except Exception as e:
             logger.error(f"Invocation error in {prefix}: {e}")
             traceback.print_exc()
@@ -137,15 +148,25 @@ app = FastAPI(
     description="Unified Server for Multiple RAG Agents"
 )
 
+# --- Dynamic Agent Registration (Registry 패턴) ---
+# AGENT_REGISTRY를 순회하며 에이전트를 동적으로 로딩합니다.
+# 개별 에이전트 로딩 실패 시에도 서버 전체가 죽지 않고 나머지 에이전트는 정상 동작합니다.
+registered_agents = []
+for agent_config in AGENT_REGISTRY:
+    try:
+        module = importlib.import_module(agent_config["module"])
+        executor = getattr(module, "agent_executor")
+        app.include_router(
+            create_agent_router(executor, agent_config["prefix"], agent_config["tags"])
+        )
+        registered_agents.append(agent_config["name"])
+        logger.info(f"✅ Registered agent: {agent_config['name']} at {agent_config['prefix']}")
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to load agent '{agent_config['name']}': {e}")
+
 @app.get("/health")
 def health():
-    return {"status": "ok", "agents": ["basic", "basic-rag", "self-query-rag", "multimodal-rag"]}
-
-# --- Register Routers ---
-app.include_router(create_agent_router(basic_agent, "/basic", ["Basic Chat"]))
-app.include_router(create_agent_router(rag_basic_agent, "/basic-rag", ["RAG Basic"]))
-app.include_router(create_agent_router(rag_self_query_agent, "/self-query-rag", ["Self-Query"]))
-app.include_router(create_agent_router(rag_multimodal_agent, "/multimodal-rag", ["Multimodal-RAG"]))
+    return {"status": "ok", "agents": registered_agents}
 
 
 if __name__ == "__main__":
