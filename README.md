@@ -43,6 +43,7 @@ llmops_class/
 
 2.  **필수 라이브러리 설치**
     ```bash
+    cd llmops_class
     pip install -r requirements.txt
     ```
 
