@@ -18,6 +18,7 @@ except ImportError:
 
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
+from app.utils.message_utils import normalize_content
 
 def encode_image(image):
     """PIL Image를 Base64 문자열로 인코딩"""
@@ -120,7 +121,7 @@ def generate_golden_dataset(
             res = llm.invoke([msg])
 
             # JSON 파싱 핸들링
-            content = res.content.replace("```json", "").replace("```", "").strip()
+            content = normalize_content(res.content).replace("```json", "").replace("```", "").strip()
             data = json.loads(content)
 
             for sample in data.get("samples", []):

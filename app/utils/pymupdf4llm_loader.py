@@ -10,6 +10,7 @@ from langchain_core.document_loaders import BaseLoader
 from langchain_core.documents import Document
 from langchain_core.messages import HumanMessage
 from langchain_core.language_models import BaseChatModel
+from app.utils.message_utils import normalize_content
 
 
 '''
@@ -48,7 +49,7 @@ class PyMuPDF4LLMLoader(BaseLoader):
         extract_images: bool = False,
         model: Optional[BaseChatModel] = None,
         image_output_dir: str = "extracted_images",
-        max_workers: int = 5  # 병렬 워커 수
+        max_workers: int = 8  # 병렬 워커 수
     ):
         self.file_path = file_path
         self.mode = mode
@@ -153,6 +154,8 @@ class PyMuPDF4LLMLoader(BaseLoader):
                 {"type": "text", "text": "Describe this image in detail for RAG context retrieval."},
                 {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_data}"}}
             ])
-            return self.model.invoke([msg]).content.strip()
+            response = self.model.invoke([msg])
+            # normalize_content: content가 str이든 list이든 안전하게 텍스트로 변환
+            return normalize_content(response.content).strip()
         except Exception as e:
             return f"(Error: {e})"
