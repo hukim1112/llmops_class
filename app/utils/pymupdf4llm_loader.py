@@ -1,8 +1,7 @@
 import os
 import re
 import base64
-import time
-from typing import Iterator, Optional, Literal, Union, List
+from typing import Iterator, Optional, Literal, Union
 from concurrent.futures import ThreadPoolExecutor
 
 import pymupdf4llm
@@ -10,20 +9,13 @@ from langchain_core.document_loaders import BaseLoader
 from langchain_core.documents import Document
 from langchain_core.messages import HumanMessage
 from langchain_core.language_models import BaseChatModel
-from app.utils.message_utils import normalize_content
-
 
 '''
 1. 텍스트만 필요할 때 (가장 빠름)
-
     loader = PyMuPDF4LLMLoader("doc.pdf", extract_images=False)
     docs = loader.load()
 
-2. 텍스트 추출과 함께 이미지 저장
-    #이미지가 ./extracted_images 폴더에 png로 저장됩니다.
-    #마크다운 텍스트에는 ![이미지](./extracted_images/img1.png) 링크가 남습니다.
-    #LLM 비용이 들지 않습니다.
-
+2. 텍스트 추출과 함께 이미지 저장 (LLM 비용 X)
     loader = PyMuPDF4LLMLoader(
         "doc.pdf", 
         extract_images=True, 
@@ -31,8 +23,8 @@ from app.utils.message_utils import normalize_content
     )
     docs = loader.load()
 
-3. 이미지 저장 + AI 분석까지 : VLM이 내용을 보고 이미지 위치에 대체 텍스트로 추가
-    gemini = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0) # Langchain ChatModel
+3. 이미지 저장 + AI 분석까지 (VLM 대체 텍스트 추가)
+    gemini = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0)
     loader = PyMuPDF4LLMLoader(
         "doc.pdf", 
         extract_images=True, 
@@ -58,15 +50,47 @@ class PyMuPDF4LLMLoader(BaseLoader):
         self.image_output_dir = image_output_dir
         self.max_workers = max_workers
 
+    @staticmethod
+    def sanitize_text(text: str) -> str:
+        """
+        서로게이트 문자를 제거하여 JSON 직렬화 오류를 방지합니다.
+        PDF에서 추출된 한국어 텍스트에 포함될 수 있는 깨진 유니코드를 처리합니다.
+        """
+        return text.encode("utf-8", errors="replace").decode("utf-8")
+
+    @staticmethod
+    def normalize_content(content) -> str:
+        """
+        다양한 LLM의 content 형식을 단일 문자열로 정규화합니다.
+        (OpenAI의 단일 문자열 응답과 Gemini의 리스트 형태 응답 간의 차이 해소)
+        """
+        if isinstance(content, str):
+            return content
+
+        if isinstance(content, list):
+            text_parts = []
+            for item in content:
+                if isinstance(item, dict):
+                    if item.get("type") == "text":
+                        text_parts.append(item.get("text", ""))
+                    elif item.get("type") == "image_url":
+                        url = item.get("image_url", {}).get("url", "")
+                        if url.startswith("data:"):
+                            text_parts.append("[이미지 (Base64)]")
+                        else:
+                            text_parts.append(f"![image]({url})")
+                elif isinstance(item, str):
+                    text_parts.append(item)
+            return "\n".join(text_parts)
+
+        return str(content)
+
     def lazy_load(self) -> Iterator[Document]:
         if self.extract_images:
             os.makedirs(self.image_output_dir, exist_ok=True)
             
-            # action 변수 설정 (병렬 워커 수 정보 포함)
             base_action = "Analysis" if self.model else "Extraction Only"
             action = f"{base_action} (Parallel x{self.max_workers})"
-            
-            # ✅ 요청하신 포맷 적용
             print(f"📂 [Loader] PDF 로드: {self.file_path} (Images: {action}, Mode: {self.mode})")
         
         # 1. CPU 파싱 (순차)
@@ -100,10 +124,8 @@ class PyMuPDF4LLMLoader(BaseLoader):
             # 결과 수집 (순서 보장)
             for i, future in enumerate(futures):
                 try:
-                    doc = future.result() # 여기서 완료될 때까지 대기
+                    doc = future.result() 
                     
-                    # 진행 상황 출력 (tqdm 대체)
-                    # 예: [Loader] Progress: 3/10 (30.0%) 완료
                     progress = i + 1
                     percent = (progress / total_pages) * 100
                     print(f"   ⏳ [Progress] {progress}/{total_pages} ({percent:.1f}%) - Page {doc.metadata.get('page')} 완료")
@@ -113,7 +135,8 @@ class PyMuPDF4LLMLoader(BaseLoader):
                     print(f"   ❌ Error processing page {i+1}: {e}")
 
     def _process_single_page_task(self, page_data: dict, index: int) -> Document:
-        text = page_data["text"]
+        # 텍스트 추출 시에도 깨진 문자열(Surrogate) 1차 방지 처리
+        text = self.sanitize_text(page_data["text"])
         meta = page_data["metadata"].copy()
         
         if 'file_path' in meta: meta['source'] = meta['file_path']
@@ -131,6 +154,15 @@ class PyMuPDF4LLMLoader(BaseLoader):
         meta.pop('tables', None)
         
         return Document(page_content=text, metadata=meta)
+
+    def _process_single_mode(self, raw_data: str) -> Iterator[Document]:
+        text = self.sanitize_text(raw_data)
+        meta = {"source": self.file_path, "mode": "single"}
+        
+        if self.extract_images and self.model:
+            text = self._replace_images_with_captions(text, page_num="all")
+            
+        yield Document(page_content=text, metadata=meta)
 
     def _replace_images_with_captions(self, text: str, page_num: Union[int, str]) -> str:
         image_links = re.findall(r'!\[(.*?)\]\((.*?)\)', text)
@@ -155,7 +187,12 @@ class PyMuPDF4LLMLoader(BaseLoader):
                 {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_data}"}}
             ])
             response = self.model.invoke([msg])
-            # normalize_content: content가 str이든 list이든 안전하게 텍스트로 변환
-            return normalize_content(response.content).strip()
+            
+            # 1. 모델에 구애받지 않게 응답을 단일 텍스트로 정규화
+            normalized = self.normalize_content(response.content)
+            
+            # 2. 반환된 텍스트의 유니코드 에러 방지 (Sanitize)
+            return self.sanitize_text(normalized).strip()
+            
         except Exception as e:
             return f"(Error: {e})"

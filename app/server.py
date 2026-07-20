@@ -104,7 +104,8 @@ def create_agent_router(agent_executor, prefix: str, tags: list = None) -> APIRo
                     if chunk and chunk.content:
                         # Gemini 리스트 → 문자열 정규화 + 서로게이트 문자 제거
                         normalized = sanitize_text(normalize_content(chunk.content))
-                        yield f"data: {json.dumps({'type': 'token', 'content': normalized})}\n\n"
+                        if normalized:
+                            yield f"data: {json.dumps({'type': 'token', 'content': normalized})}\n\n"
 
         except Exception as e:
             logger.error(f"Stream error in {prefix}: {e}")
@@ -154,15 +155,29 @@ app = FastAPI(
 registered_agents = []
 for agent_config in AGENT_REGISTRY:
     try:
+        # 동적으로 모듈 임포트
         module = importlib.import_module(agent_config["module"])
-        executor = getattr(module, "agent_executor")
-        app.include_router(
-            create_agent_router(executor, agent_config["prefix"], agent_config["tags"])
-        )
-        registered_agents.append(agent_config["name"])
-        logger.info(f"✅ Registered agent: {agent_config['name']} at {agent_config['prefix']}")
+        
+        # 에이전트 실행기(executor) 객체 찾기
+        executor = getattr(module, "agent_executor", None)
+        if not executor:
+            # create_agent_name 팩토리 함수인 경우 대응 (하이픈은 언더바로 치환)
+            factory_name = f"create_{agent_config['name'].replace('-', '_')}_agent"
+            executor_factory = getattr(module, factory_name, None)
+            if executor_factory:
+                executor = executor_factory()
+                
+        if executor:
+            app.include_router(
+                create_agent_router(executor, agent_config["prefix"], agent_config["tags"])
+            )
+            registered_agents.append(agent_config["name"])
+            logger.info(f"✅ Registered agent: {agent_config['name']} at {agent_config['prefix']}")
+        else:
+            logger.warning(f"⚠️ Warning: '{agent_config['name']}' 모듈에 'agent_executor'가 없습니다.")
     except Exception as e:
-        logger.warning(f"⚠️ Failed to load agent '{agent_config['name']}': {e}")
+        logger.error(f"❌ Failed to load agent '{agent_config['name']}': {e}")
+        traceback.print_exc()
 
 @app.get("/health")
 def health():

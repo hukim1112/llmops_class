@@ -18,6 +18,12 @@ llmops_class/
 │   │   ├── rag_basic.py        # Step 2: 기본 RAG (검색 + 답변)
 │   │   ├── rag_self_query.py   # Step 3: 고급 RAG (메타데이터 필터링)
 │   │   └── rag_multimodal.py   # Step 4: 멀티모달 RAG (이미지 검색/분석)
+│   ├── prompts/            # 분리된 에이전트별 시스템 프롬프트 (Prompts) [NEW]
+│   │   ├── __init__.py         # 프롬프트 통합 export
+│   │   ├── basic.py            # Basic 챗봇 프롬프트 템플릿
+│   │   ├── rag_basic.py        # Basic RAG 프롬프트 템플릿
+│   │   ├── rag_self_query.py   # Self-Query RAG 프롬프트 템플릿
+│   │   └── rag_multimodal.py   # Multimodal RAG 프롬프트 템플릿
 │   ├── tools/              # 에이전트가 사용하는 도구들
 │   │   ├── __init__.py         # 🏭 도구 팩토리 (Tool Factory)
 │   │   ├── rag.py              # 검색 도구 (Retriever 연동)
@@ -28,34 +34,37 @@ llmops_class/
 ├── data/                   # RAG용 데이터 (PDF, 추출된 이미지 등)
 ├── notebooks/              # 실습용 Jupyter Notebooks (DB 구축 등)
 ├── .env                    # 환경변수 (API Key 설정)
+├── install.sh              # 자동 설치 및 환경 설정 스크립트 (WSL 전용) [NEW]
 └── requirements.txt        # 필요 라이브러리 목록
 ```
 
 ---
 ## Installation & Setup
 
-1.  **시스템 패키지 설치 (Linux/Codespaces)**
-    PDF 처리 및 멀티모달 기능을 위해 시스템 레벨의 의존성이 필요합니다.
-    ```bash
-    sudo apt-get update
-    sudo apt-get install -y poppler-utils
-    ```
-
-2.  **필수 라이브러리 설치**
+1.  **자동 설치 및 환경 설정 (WSL/Ubuntu 추천)**
+    이 프로젝트는 Poppler 등의 시스템 패키지와 파이썬 의존성 설치, 그리고 `.env` 파일 생성을 자동화해 주는 `install.sh` 스크립트를 제공합니다.
     ```bash
     cd llmops_class
-    pip install -r requirements.txt
+    chmod +x install.sh
+    ./install.sh
     ```
+    *스크립트 실행 결과로 생성된 `.env` 파일에 API Key들을 입력하세요.*
 
-2.  **환경 변수 설정**
-    `.env` 파일을 생성하고 다음 키를 입력하세요.
-    ```ini
-    OPENAI_API_KEY=sk-...
-    TAVILY_API_KEY=tvly-...
-    ```
+2.  **수동 설치 (스크립트를 사용하지 않을 경우)**
+    *   **시스템 패키지 설치 (Linux/Codespaces)**:
+        PDF 처리 및 멀티모달 기능을 위해 시스템 레벨의 의존성이 필요합니다.
+        ```bash
+        sudo apt-get update
+        sudo apt-get install -y poppler-utils
+        ```
+    *   **필수 라이브러리 설치**:
+        ```bash
+        pip install -r requirements.txt
+        ```
+    *   **환경 변수 설정**: `.env_template` 파일을 `.env` 파일로 복사한 뒤 API 키들을 입력하고 `PROJECT_ROOT` 경로를 로컬 레포지토리 절대 경로로 지정하세요.
 
 3.  **데이터베이스 구축 (사전 작업)**
-    *   `notebooks/01_basic_rag.ipynb` 등을 실행하여 PDF 데이터를 로드하고 Vector DB를 생성해야 RAG 기능이 작동합니다.
+    *   `notebooks/01_development_of_agent.ipynb` 등을 실행하여 PDF 데이터를 로드하고 Vector DB를 생성해야 RAG 기능이 작동합니다.
 
 ---
 
@@ -103,9 +112,11 @@ graph LR
 *   **`app/server.py`**:
     *   `AGENT_REGISTRY`를 `importlib`로 동적 로딩하여, 에이전트 로딩 실패 시에도 **서버 전체가 죽지 않고** 나머지가 동작하는 구조를 확인하세요.
     *   `create_agent_router` 팩토리 패턴과 **SSE(Server-Sent Events)** 스트리밍을 살펴보세요.
+*   **`app/prompts/`** — 분리된 시스템 프롬프트:
+    *   에이전트 구현 복잡도를 줄이고 관리를 용이하게 하기 위해 시스템 프롬프트 텍스트를 `app/prompts` 폴더로 분리하여 템플릿화하였습니다.
+    *   `basic.py`, `rag_basic.py` 등 각 파일에서 프롬프트를 정의하고, 에이전트 모듈에서는 날짜 등의 런타임 변수만 주입(`.format()`)하여 동적으로 처리합니다.
 *   **`app/agents/*.py`**:
-    *   `create_agent` 함수 하나로 LLM, Tools, Memory(Checkpointer)가 어떻게 엮이는지 확인하세요.
-    *   시스템 프롬프트(`system_prompt`)가 에이전트의 성격을 어떻게 결정하는지 비교해보세요.
+    *   시스템 프롬프트가 `app/prompts`로부터 분리된 상태에서 `create_agent` 함수 하나로 LLM, Tools, Memory(Checkpointer)가 어떻게 결합되는지 확인하세요.
 *   **`app/ui.py`**:
     *   단순 텍스트뿐만 아니라, **이미지와 텍스트가 섞인 답변**을 어떻게 파싱해서 화면에 그려주는지(`render_message_content`) 확인하세요.
 

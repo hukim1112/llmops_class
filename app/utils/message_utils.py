@@ -15,8 +15,10 @@ def sanitize_text(text: str) -> str:
 
     PDF에서 추출된 한국어 텍스트에 깨진 유니코드(lone surrogate, U+D800~U+DFFF)가
     포함될 수 있습니다. 이 문자들은 UTF-8로 인코딩할 수 없어 json.dumps() 시
-    UnicodeEncodeError를 발생시킵니다. 이 함수는 해당 문자를 '�'(U+FFFD)로 대체합니다.
+    UnicodeEncodeError를 발생시킵니다. 이 함수는 해당 문자를 ''(U+FFFD)로 대체합니다.
     """
+    if not isinstance(text, str):
+        text = str(text)
     return text.encode("utf-8", errors="replace").decode("utf-8")
 
 

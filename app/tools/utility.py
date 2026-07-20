@@ -5,6 +5,64 @@ import mimetypes
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
+from langchain.chat_models import init_chat_model
+from langchain_tavily import TavilySearch, TavilyExtract
+
+tavily_search = TavilySearch(max_results=3, topic="general")
+tavily_extract = TavilyExtract(extract_depth="basic", include_images=False)
+
+MAX_TOOL_OUTPUT_CHARS = 6000
+summarizer_llm = init_chat_model("openai:gpt-4o-mini", temperature=0)
+
+def _summarize_if_long(text: str, query: str, max_chars: int = MAX_TOOL_OUTPUT_CHARS) -> str:
+    """검색 결과가 길면 gpt-4o-mini로 핵심만 요약합니다."""
+    if len(text) <= max_chars:
+        return text
+    print(f"  📋 검색 결과 {len(text)}자 → gpt-4o-mini 요약 중...")
+    summary = summarizer_llm.invoke(
+        f"다음은 '{query}'에 대한 검색 결과입니다. "
+        f"핵심 정보만 추출하여 {query}와 관련한 핵심 자료를 위주로 {MAX_TOOL_OUTPUT_CHARS}이내에서 구조화된 요약을 작성하세요. "
+        f"반드시 출처 URL을 보존하세요.\n\n{text[:50000]}"
+    )
+    result = summary.content
+    print(f"  ✅ 요약 완료: {len(text)}자 → {len(result)}자")
+    return result
+
+
+def extract_text_content(content) -> str:
+    """AIMessage.content에서 순수 텍스트만 추출합니다."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(
+            part.get("text", "") if isinstance(part, dict) else part
+            for part in content if isinstance(part, (dict, str))
+        )
+    return str(content)
+
+@tool(parse_docstring=True)
+def web_search(query: str) -> str:
+    """웹에서 최신 정보를 검색합니다. 결과가 길면 자동으로 핵심만 요약됩니다.
+
+    Args:
+        query: 검색할 쿼리 문자열
+    """
+    result = tavily_search.invoke({"query": query})
+    raw = result if isinstance(result, str) else str(result)
+    return _summarize_if_long(raw, query)
+
+
+@tool(parse_docstring=True)
+def web_extract(url: str) -> str:
+    """특정 URL에서 상세 정보를 추출합니다. 결과가 길면 자동으로 핵심만 요약됩니다.
+
+    Args:
+        url: 정보를 추출할 웹페이지 URL
+    """
+    result = tavily_extract.invoke({"urls": [url]})
+    raw = result if isinstance(result, str) else str(result)
+    return _summarize_if_long(raw, url)
+
 
 @tool
 def read_image_and_analyze(image_path: str, query_hint: str = "이 이미지의 내용을 상세히 설명해줘.") -> str:
@@ -32,7 +90,7 @@ def read_image_and_analyze(image_path: str, query_hint: str = "이 이미지의 
         messages = [
             HumanMessage(
                 content=[
-                    {"type": "text", "text": f"당신은 유능한 이미지 분석가입니다. 다음 요청에 맞춰 이미지를 분석하세요: {query_hint}"},
+                    {"type": "text", "text": f"당신은 유능한 이미지 분석가입니다. 다음 요청에 맞춰 이미지를 분석하세요. 만약 요청에 대해 분석에 실패했다면 이유에 대해 설명하세요.: {query_hint}"},
                     {
                         "type": "image_url",
                         "image_url": {"url": f"data:{mime_type};base64,{encoded_string}"}
@@ -46,79 +104,3 @@ def read_image_and_analyze(image_path: str, query_hint: str = "이 이미지의 
 
     except Exception as e:
         return f"Error: 이미지 분석 중 오류 발생. {str(e)}"
-
-# --- Web Search Tool ---
-try:
-    from langchain_tavily import TavilySearch
-except ImportError:
-    # langchain_tavily 라이브러리가 설치되어 있지 않은 경우에 대한 예외 처리
-    TavilySearch = None
-
-# 검색 쿼리를 받아 웹에서 관련 문서/페이지를 찾아주는 도구입니다.
-if TavilySearch:
-    tavily_search = TavilySearch(max_results=5,
-                                 topic="general",
-                                 search_depth="advanced",
-                                 include_raw_content=True)
-else:
-    tavily_search = None
-
-@tool
-def web_search_custom_tool(query: str) -> str:
-    """
-    웹 검색을 수행하여 최신 정보를 수집합니다.
-    단순 요약뿐만 아니라, 가능한 경우 원문(Raw Content)을 우선적으로 제공하여 심도 있는 답변을 돕습니다.
-    """
-    print(f"---웹 검색 도구 호출: {query}---")
-
-    # 1. Tavily 호출
-    try:
-        response = tavily_search.invoke({"query": query})
-    except Exception as e:
-        return f"검색 중 오류가 발생했습니다: {e}"
-
-    processed_results = []
-
-    # 안전장치: 너무 긴 텍스트는 잘라냄 (약 4000자 권장)
-    MAX_LENGTH = 4000
-
-    if isinstance(response, list):
-        # TavilySearchResults는 설정에 따라 list나 dict를 반환할 수 있으므로 list인 경우 바로 처리
-        items = response
-    elif isinstance(response, dict) and "results" in response:
-        items = response["results"]
-    else:
-        return "검색 결과가 없습니다."
-
-    for item in items:
-        # 2. Raw Content(원문) 상태 확인
-        raw_text = item.get("raw_content")
-        snippet_text = item.get("content", "") # 항상 있는 짧은 요약
-
-        # 3. 우선순위 결정: Raw가 유효하고(None이 아니고), 내용이 충분히(500자 이상) 있다면 채택
-        if raw_text and len(raw_text) > 500:
-            final_content = raw_text
-            data_source = "raw_full_text"
-        else:
-            # Raw가 없거나 너무 짧으면(오류일 가능성) 스니펫 사용
-            final_content = snippet_text
-            data_source = "snippet_fallback"
-
-        # 4. 길이 제한 (Truncation)
-        if len(final_content) > MAX_LENGTH:
-            final_content = final_content[:MAX_LENGTH] + "...(중략)"
-
-        # 5. JSON Dump (메타데이터 포함)
-        doc_data = {
-            "title": item.get("title"),
-            "url": item.get("url"),
-            "content": final_content, # 선별된 텍스트
-            "source_type": data_source
-        }
-
-        # JSON 형태로 변환하여 리스트에 추가
-        # ensure_ascii=False로 한글 깨짐 방지
-        processed_results.append(json.dumps(doc_data, ensure_ascii=False))
-
-    # 에이전트가 읽을 수 있도록 하나의 긴 문자열로 합쳐서 반환
-    return "\n\n".join(processed_results)

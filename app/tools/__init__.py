@@ -79,10 +79,11 @@ from app.tools.rag import (
 )
 from app.tools.utility import (
     read_image_and_analyze, 
-    web_search_custom_tool
+    web_search,
+    web_extract
 )
 
 # Export Tool Lists for Agents
 tools_basic = [search_bok_reports_basic]
 tools_self_query = [search_bok_reports_self_query]
-tools_multimodal = [search_bok_reports_multimodal, read_image_and_analyze, web_search_custom_tool]
+tools_multimodal = [search_bok_reports_multimodal, read_image_and_analyze, web_search, web_extract]

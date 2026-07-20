@@ -73,7 +73,11 @@ def _create_self_query_retriever(collection_name: str):
             type="integer",
         ),
     ]
-    document_content_description = "Bank of Korea Industry Reports"
+    document_content_description = (
+        "Bank of Korea Industry Reports. "
+        "IMPORTANT: Filter values for 'year' and 'quarter' must always be "
+        "integers (e.g., 2024, 1), NEVER strings (e.g., \"2024\", \"1\")."
+    )
     
     # Self-Query를 위한 LLM (구조화된 쿼리 생성용)
     llm = ChatOpenAI(model="gpt-4o", temperature=0).with_config({"tags": ["exclude_from_stream"]})
