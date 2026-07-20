@@ -85,12 +85,12 @@ def read_image_and_analyze(image_path: str, query_hint: str = "이 이미지의 
         with open(image_path, "rb") as image_file:
             encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
 
-        vision_llm = ChatOpenAI(model="gpt-4o", temperature=0)
+        vision_llm = ChatOpenAI(model="gpt-5-mini", temperature=0)
 
         messages = [
             HumanMessage(
                 content=[
-                    {"type": "text", "text": f"당신은 유능한 이미지 분석가입니다. 다음 요청에 맞춰 이미지를 분석하세요. 만약 요청에 대해 분석에 실패했다면 이유에 대해 설명하세요.: {query_hint}"},
+                    {"type": "text", "text": f"당신은 유능한 이미지 분석가입니다. 상위 에이전트의 요청에 맞춰 이미지를 분석하세요. 만약 정확한 분석에 실패하거나, 요청한 내용과 이미지의 차이가 있다면 그 이유를 설명하여 상위 에이전트가 질의를 조정하는데 도움을 주세요.: {query_hint}"},
                     {
                         "type": "image_url",
                         "image_url": {"url": f"data:{mime_type};base64,{encoded_string}"}
